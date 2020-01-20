@@ -132,6 +132,10 @@ class SaltEdgeBrowser(APIBrowser):
 
         if 'payee' in transaction['extra']:
             t.label = transaction['extra']['payee']
+        elif 'payee_information' in transaction['extra']:
+            t.label = transaction['extra']['payee_information']
+        elif 'account_number' in transaction['extra']:
+            t.label = "Account number: %s" % transaction['extra']['account_number']
 
         if 'posting_date' in transaction['extra']:
             t.rdate = Date().filter(transaction['extra']['posting_date'])
