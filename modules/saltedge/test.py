@@ -26,6 +26,6 @@ class SaltEdgeTest(BackendTest):
     def test_bank(self):
         l = list(self.backend.iter_accounts())
         if len(l) > 0:
-            #a = l[0]
             for account in l:
                 list(self.backend.iter_history(account))
+                list(self.backend.iter_coming(account))

@@ -54,3 +54,6 @@ class SaltEdgeModule(Module, CapBank):
 
     def iter_history(self, account):
         return self.browser.iter_history(account)
+
+    def iter_coming(self, account):
+        return self.browser.iter_coming(account)

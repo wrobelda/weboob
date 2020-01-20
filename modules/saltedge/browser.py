@@ -20,8 +20,8 @@
 
 from __future__ import unicode_literals
 
-from functools import wraps
 import json
+from functools import wraps
 
 from weboob.browser.browsers import APIBrowser
 from weboob.browser.filters.standard import CleanDecimal, Date
@@ -43,6 +43,7 @@ ACCOUNT_TYPES = {
     'mortgage': Account.TYPE_MORTGAGE,
     'savings': Account.TYPE_SAVINGS
 }
+
 
 def need_connections(func):
     @wraps(func)
@@ -77,6 +78,7 @@ class SaltEdgeBrowser(APIBrowser):
         return super(APIBrowser, self).build_request(*args, **kwargs)
 
     # TODO: handle pagination using Pages
+    # TODO: handle errors
     def get_connections(self, from_id=0):
         self.open('api/v5/connections?customer_id=%s&from_id=%i' % (self.customer_id, from_id))
         response = self.request('api/v5/connections?customer_id=%s&from_id=%i' % (self.customer_id, from_id),
@@ -87,6 +89,7 @@ class SaltEdgeBrowser(APIBrowser):
             self.get_connections(self, response['meta']['next_id'])
 
     # TODO: handle pagination using Pages
+    # TODO: handle errors
     def get_connection_accounts(self, connection, from_id=0):
         self.open('api/v5/accounts?connection_id=%s&from_id=%i' % (connection['id'], from_id))
         response = self.request('api/v5/accounts?connection_id=%s&from_id=%i' % (connection['id'], from_id),
@@ -115,47 +118,74 @@ class SaltEdgeBrowser(APIBrowser):
         for connection in self.connections:
             yield from self.get_connection_accounts(connection)
 
+    def get_transaction(selfs, transaction):
+        t = Transaction()
+
+        t.date = Date().filter(transaction['made_on'])
+        t.id = transaction['id']
+        t.amount = CleanDecimal().filter(transaction['amount'])
+        t.raw = transaction['description']
+        t.category = transaction['category']
+
+        if 'additional' in transaction['extra']:
+            t.raw += '\n' + transaction['extra']['additional']
+
+        if 'payee' in transaction['extra']:
+            t.label = transaction['extra']['payee']
+
+        if 'posting_date' in transaction['extra']:
+            t.rdate = Date().filter(transaction['extra']['posting_date'])
+
+        if 'original_currency_code' in transaction['extra']:
+            t.original_currency = transaction['extra']['original_currency_code']
+
+        if 'original_amount' in transaction['extra']:
+            t.original_amount = CleanDecimal().filter(transaction['extra']['original_amount'])
+
+        yield t
+
     # TODO: handle pagination using Pages
     # TODO: use time and posting_time if present
-    # TODO: handle pending transactions
     # TODO: handle the transaction type
+    # TODO: handle errors
     @need_connections
-    def iter_history(self, account, from_if=0):
-        self.open('api/v5/transactions?connection_id=%s&account_id=%s' % (account._connection_id, account.id))
-        response = self.request('api/v5/transactions?connection_id=%s&account_id=%s' % (account._connection_id,
-                                                                                        account.id),
-                                headers=self.request_headers)
-
+    def iter_history(self, account, from_id=0):
+        self.open('api/v5/transactions?connection_id=%s&account_id=%s&from_id=%s' % (
+        account._connection_id, account.id, from_id))
+        response = self.request(
+            'api/v5/transactions?connection_id=%s&account_id=%s&from_id=%s' % (account._connection_id,
+                                                                               account.id, from_id),
+            headers=self.request_headers)
         transactions = response['data']
 
         for transaction in transactions:
-            t = Transaction()
-
             if transaction['status'] is 'pending':
                 continue
-
-            t.date = Date().filter(transaction['made_on'])
-            t.id = transaction['id']
-            t.amount = CleanDecimal().filter(transaction['amount'])
-            t.raw = transaction['description']
-            t.category = transaction['category']
-
-            if 'additional' in transaction['extra']:
-                t.raw += '\n' + transaction['extra']['additional']
-
-            if 'payee' in transaction['extra']:
-                t.label = transaction['extra']['payee']
-
-            if 'posting_date' in transaction['extra']:
-                t.rdate = Date().filter(transaction['extra']['posting_date'])
-
-            if 'original_currency_code' in transaction['extra']:
-                t.original_currency = transaction['extra']['original_currency_code']
-
-            if 'original_amount' in transaction['extra']:
-                t.original_amount = CleanDecimal().filter(transaction['extra']['original_amount'])
-
-            yield t
+            else:
+                yield from self.get_transaction(transaction)
 
         if response['meta'].get('next_id'):
-            yield self.iter_history(account, response['meta']['next_id'])
+            yield from self.iter_history(account, response['meta']['next_id'])
+
+    # TODO: handle pagination using Pages
+    # TODO: use time and posting_time if present
+    # TODO: handle the transaction type
+    # TODO: handle errors
+    @need_connections
+    def iter_coming(self, account, from_id=0):
+        self.open('api/v5/transactions/pending?connection_id=%s&account_id=%s&from_id=%s' % (
+        account._connection_id, account.id, from_id))
+        response = self.request(
+            'api/v5/transactions/pending?connection_id=%s&account_id=%s&from_id=%s' % (account._connection_id,
+                                                                                       account.id, from_id),
+            headers=self.request_headers)
+        transactions = response['data']
+
+        for transaction in transactions:
+            if transaction['status'] is 'posted':
+                continue
+            else:
+                yield from self.get_transaction(transaction)
+
+        if response['meta'].get('next_id'):
+            yield from self.iter_coming(account, response['meta']['next_id'])
